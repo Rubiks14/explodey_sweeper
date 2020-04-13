@@ -116,7 +116,10 @@ class Board():
                     continue
 
                 # get the character at the adjacent position being checked
-                cell = self.get_cell_character(adjacent_x_position, adjacent_y_position)
+                cell = self.get_cell_character(
+                    adjacent_x_position,
+                    adjacent_y_position
+                )
                 # if the character is an EMPTY_SPACE then make it a '1'
                 if cell == EMPTY_SPACE:
                     cell = '1'
