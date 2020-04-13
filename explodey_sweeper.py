@@ -1,7 +1,11 @@
 """
-A simple recreation of minesweeper to be played in the console.
+A game where the goal is to not step on an exploding square
 """
 
+# TODO: Add ability to start a new game with specific parameters
+# TODO: Add a way to restart the current board
+# TODO: Clean up the main function
+# TODO: Get rid of some duplicated code by abstracting it to functions
 # TODO: Update comments and variable names to be have consistent wording
 from dataclasses import dataclass, field
 from enum import Enum
@@ -215,7 +219,7 @@ class Display():
     Handles displaying the board based on the state of all cells
     """
 
-    def display_board(self, board: Board):
+    def display_board(self, board: Board, mines_left: int):
         """
         Displays the contents of the board based on if the cell is revealed
         or not
@@ -261,6 +265,7 @@ class Display():
             else:
                 y_pos = chr(ord(y_pos) + 1)
             print()
+        print(f"Mines left: {mines_left}")
 
     def debug_display(self, board: Cells, board_width, board_height):
         """
@@ -296,6 +301,8 @@ class Controller():
     board: Board = field(default_factory=Board)
     current_state: State = field(default=State.PLAYING)
     mode: Move_Mode = field(default=Move_Mode.REVEAL)
+    mines_left: int = field(init=False, repr=False)
+    flagged_locations: Set[Tuple[int, int]] = field(default_factory=set)
 
     def new_game(self, width, height, num_mines):
         """
@@ -326,6 +333,7 @@ class Controller():
                 height=height,
                 number_of_mines=num_mines
             )
+            self.mines_left = num_mines
             print("New Game!\n")
             return True
         else:
@@ -365,6 +373,18 @@ class Controller():
 
         return (x, y)
 
+    def check_win(self):
+        """
+        Returns True if all mines are flagged and false otherwise
+        """
+        flagged_mines = self.flagged_locations.intersection(
+            self.board.mine_locations
+        )
+        if len(flagged_mines) == len(self.board.mine_locations):
+            return True
+        else:
+            return False
+
     def process_move(self, x, y):
         """
         processes the player's move
@@ -373,6 +393,8 @@ class Controller():
             # Don't let the player reveal a cell that is already revealed
             if self.board.is_revealed(x, y):
                 print(f"Invalid Move: Cell ({x}, {y}) is already revealed")
+            elif self.board.is_flagged(x, y):
+                print(f"Invalid Move: Cell ({x}, {y}) is already flagged")
             # otherwise if the cell is a mine then reveal all mines and set
             # game state to lost
             elif self.board.get_cell_character(x, y) == MINE:
@@ -383,9 +405,15 @@ class Controller():
                 self.board.reveal_cell(x, y)
         elif self.mode == self.Move_Mode.FLAG:
             if self.board.is_revealed(x, y):
-                print(print(f"Invalid Move: Cell ({x}, {y}) is already revealed"))  # noqa: E501
+                print(f"Invalid Move: Cell ({x}, {y}) is already revealed")
+            elif self.board.is_flagged(x, y):
+                print(f"Invalid Move: Cell ({x}, {y}) is already flagged")
             else:
                 self.board.flag_cell(x, y)
+                self.flagged_locations.add((x, y))
+                self.mines_left -= 1
+                if self.check_win():
+                    self.current_state = State.PLAYER_WON
 
 
 if __name__ == "__main__":
@@ -393,7 +421,16 @@ if __name__ == "__main__":
     display = Display()
     game.new_game(12, 12, 15)
     while game.current_state == State.PLAYING:
-        display.display_board(game.board)
+
+        # Cheating to test win code
+        # for mine_cell in game.board.mine_locations:
+        #     game.board.flag_cell(mine_cell[0], mine_cell[1])
+        #     game.flagged_locations.add((mine_cell[0], mine_cell[1]))
+        #     if game.check_win():
+        #         game.current_state = State.PLAYER_WON
+        #         break
+
+        display.display_board(game.board, game.mines_left)
         mode = input("Enter selection mode (reveal, flag, quit): ")
         if mode.lower() == "reveal":
             game.mode = game.Move_Mode.REVEAL
@@ -401,7 +438,8 @@ if __name__ == "__main__":
             game.mode = game.Move_Mode.FLAG
         elif mode.lower() == "quit":
             break
-        move = input("Enter a cell to reveal: ")
+
+        move = input("Enter a cell position: ")
         move = [char for char in move]
         move = game.convert_move_to_xy(move[0], move[1])
         if move[0] >= 0 and move[0] < game.board.width and\
@@ -409,5 +447,8 @@ if __name__ == "__main__":
             game.process_move(move[0], move[1])
         else:
             print("Please enter a position on the board")
-    display.display_board(game.board)
-    print("YOU LOST!")
+    display.display_board(game.board, game.mines_left)
+    if game.current_state == State.PLAYER_WON:
+        print("YOU WON!")
+    elif game.current_state == State.PLAYER_LOST:
+        print("YOU LOST!")
