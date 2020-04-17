@@ -468,7 +468,11 @@ class Controller():
             move = self.get_move()
             if self.validate_move(move):
                 move_position = self.convert_move_to_xy(move)
-                self.process_move(move_position[0], move_position[1])
+                if (move_position[0] >= 0 and
+                        move_position[0] < self.board.width and
+                        move_position[1] >= 0 and
+                        move_position[1] < self.board.height):
+                    self.process_move(move_position[0], move_position[1])
         elif command == self.Commands.NEW.value:
             self.current_state = State.NEW_GAME
         elif command == self.Commands.RESET.value:
