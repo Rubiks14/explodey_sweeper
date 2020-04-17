@@ -2,9 +2,7 @@
 A game where the goal is to not step on an exploding square
 """
 
-# TODO: Add ability to start a new game with specific parameters
-# TODO: Add a way to restart the current board
-# TODO: Clean up the main function
+# TODO: Add ability to unflag a cell
 # TODO: Get rid of some duplicated code by abstracting it to functions
 # TODO: Update comments and variable names to be have consistent wording
 from dataclasses import dataclass, field
@@ -41,13 +39,17 @@ class State(Enum):
     PLAYING = "play"
     PLAYER_WON = "win"
     PLAYER_LOST = "lost"
+    PLAYER_QUIT = "quit"
+    NEW_GAME = "new"
+    RESET = "reset"
+    MENU = "menu"
 
 
 @dataclass
 class Cell():
     """
     Contains the character located at the cell and a boolean
-    stating if the cell has been revealed or not
+    for if the cell has been revealed as well as one for revealed
     """
     character: str = field(default=EMPTY_SPACE)
     revealed: bool = field(default=False)
@@ -212,6 +214,15 @@ class Board():
         """
         self.cells[y*self.width+x].flagged = True
 
+    def reset(self):
+        """
+        Resets the current board so that a new game can be played on it
+        """
+        # resetting the board is as simple as resetting all flags to False
+        for cell in self.cells:
+            cell.revealed = False
+            cell.flagged = False
+
 
 @dataclass
 class Display():
@@ -294,17 +305,36 @@ class Controller():
     to notifying the display class to draw the game
     """
 
-    class Move_Mode(Enum):
-        REVEAL = 0
-        FLAG = 1
+    class Commands(Enum):
+        REVEAL = "reveal"
+        FLAG = "flag"
+        UNFLAG = "unflag"
+        NEW = "new"
+        RESET = "reset"
+        QUIT = "quit"
 
+    display: Display = field(default_factory=Display)
     board: Board = field(default_factory=Board)
-    current_state: State = field(default=State.PLAYING)
-    mode: Move_Mode = field(default=Move_Mode.REVEAL)
+    current_state: State = field(default=State.MENU)
+    mode: Commands = field(default=Commands.REVEAL)
     mines_left: int = field(init=False, repr=False)
     flagged_locations: Set[Tuple[int, int]] = field(default_factory=set)
 
-    def new_game(self, width, height, num_mines):
+    def __post_init__(self):
+        """
+        Builds the state machine
+        """
+        self.states = {
+            State.MENU.value: self.process_menu,
+            State.NEW_GAME.value: self.process_new_game,
+            State.RESET.value: self.reset_game,
+            State.PLAYING.value: self.process_playing,
+            State.PLAYER_WON.value: self.process_win,
+            State.PLAYER_LOST.value: self.process_loss,
+            State.PLAYER_QUIT.value: self.process_quit,
+        }
+
+    def build_new_game(self, width, height, num_mines):
         """
         initializes and returns True with the provided parameters
         if they are in the correct range otherwise prints an error message
@@ -335,19 +365,30 @@ class Controller():
             )
             self.mines_left = num_mines
             print("New Game!\n")
-            return True
+            self.current_state = State.PLAYING
         else:
             print(f"Invalid board setup: {width}x{height} {num_mines}")
             print(f"Height range: {MIN_BOARD_HEIGHT}-{MAX_BOARD_HEIGHT}")
             print(f"Width range: {MIN_BOARD_WIDTH}-{MAX_BOARD_WIDTH}")
             print(f"Mine range for board size: {MIN_MINE_COUNT}-{MAX_MINE_COUNT}")  # noqa: E501
             self.board = None
-            return False
 
-    def convert_move_to_xy(self, col, row):
+    def reset_game(self):
         """
-        Gets the move from the user and returns (x, y)
+        Resets the game to be retried
         """
+        self.board.reset()
+        self.mines_left = self.board.number_of_mines
+        self.flagged_locations = set()
+        self.current_state = State.PLAYING
+
+    def convert_move_to_xy(self, move: str):
+        """
+        Converts the user move from str to (x, y) tuple of ints
+        """
+        move = [char for char in move]
+        col = move[0]
+        row = move[1]
         x = -1
         y = -1
 
@@ -385,11 +426,61 @@ class Controller():
         else:
             return False
 
+    def get_command(self):
+        """
+        Gets the players command and returns it
+        """
+        print("Commands - reveal, flag, unflag, new, reset, quit")
+        try:
+            command = input("Enter a command (default is reveal): ") or\
+                self.Commands.REVEAL.value
+        finally:
+            return command
+
+    def get_move(self):
+        """
+        Gets the move from player
+        """
+        got_move = False
+        while not got_move:
+            try:
+                move = input("Enter col and row: ")
+            except ValueError:
+                pass
+            else:
+                return move
+
+    def validate_move(self, move: str):
+        """
+        Validates that user input is correct length
+        """
+        return True if len(move) == 2 else False
+
+    def process_command(self, command: str):
+        """
+        Processes user commands
+        """
+        command = command.lower()
+        if (command == self.Commands.REVEAL.value or
+                command == self.Commands.FLAG.value or
+                command == self.Commands.UNFLAG.value):
+            self.mode = command
+            move = self.get_move()
+            if self.validate_move(move):
+                move_position = self.convert_move_to_xy(move)
+                self.process_move(move_position[0], move_position[1])
+        elif command == self.Commands.NEW.value:
+            self.current_state = State.NEW_GAME
+        elif command == self.Commands.RESET.value:
+            self.current_state = State.RESET
+        elif command == self.Commands.QUIT.value:
+            self.current_state = State.PLAYER_QUIT
+
     def process_move(self, x, y):
         """
         processes the player's move
         """
-        if self.mode == self.Move_Mode.REVEAL:
+        if self.mode == self.Commands.REVEAL.value:
             # Don't let the player reveal a cell that is already revealed
             if self.board.is_revealed(x, y):
                 print(f"Invalid Move: Cell ({x}, {y}) is already revealed")
@@ -403,7 +494,7 @@ class Controller():
             # otherwise reveal the cell and potentially other cells around it
             else:
                 self.board.reveal_cell(x, y)
-        elif self.mode == self.Move_Mode.FLAG:
+        elif self.mode == self.Commands.FLAG.value:
             if self.board.is_revealed(x, y):
                 print(f"Invalid Move: Cell ({x}, {y}) is already revealed")
             elif self.board.is_flagged(x, y):
@@ -415,40 +506,93 @@ class Controller():
                 if self.check_win():
                     self.current_state = State.PLAYER_WON
 
+    def run(self):
+        """
+        Runs the state machine
+        """
+        while True:
+            self.states[self.current_state.value]()
+            if self.current_state == State.PLAYER_QUIT:
+                self.process_quit()
+                break
+
+    def process_playing(self):
+        """
+        Handles playing the game from getting input to displaying the board
+        """
+        self.display.display_board(self.board, self.mines_left)
+        command = self.get_command()
+        self.process_command(command)
+
+    def process_new_game(self):
+        """
+        Handles prompting player for new game parameters and calling
+        build_new_game function
+        """
+        game_built = False
+        while not game_built:
+            print("Please enter the parameters for your new game board")
+            print("Default width: 9")
+            print("Default height: 9")
+            print("Default mine count: 10")
+            try:
+                width = int(input("Board width: "))
+                height = int(input("Board height: "))
+                num_mines = int(input("Number of mines: "))
+                self.build_new_game(width, height, num_mines)
+                if self.board is not None:
+                    game_built = True
+            except ValueError:
+                print("Starting game with default parameters")
+                width = DEFAULT_BOARD_WIDTH
+                height = DEFAULT_BOARD_HEIGHT
+                num_mines = DEFAULT_MINE_COUNT
+            finally:
+                self.build_new_game(width, height, num_mines)
+                if self.board is not None:
+                    game_built = True
+        self.current_state == State.PLAYING
+
+    def process_win(self):
+        """
+        Handles player winning the game
+        """
+        self.display.display_board(self.board, self.mines_left)
+        print("You Won!")
+        self.current_state = State.MENU
+
+    def process_loss(self):
+        """
+        Handles player losing the game
+        """
+        self.board.reveal_all_mines()
+        self.display.display_board(self.board, self.mines_left)
+        print("You Loss!")
+        self.current_state = State.MENU
+
+    def process_menu(self):
+        """
+        Handles all menu stuff for player
+        """
+        print("Start a new game or quit?")
+        while self.current_state == State.MENU:
+            try:
+                command = input("Enter command (new, quit): ")
+                if command == self.Commands.NEW.value:
+                    self.current_state = State.NEW_GAME
+                elif command == self.Commands.QUIT.value:
+                    self.current_state = State.PLAYER_QUIT
+            except ValueError:
+                self.current_state = State.NEW_GAME
+
+    def process_quit(self):
+        """
+        Handles player quiting the game
+        """
+        print("Thanks for playing!")
+        pass
+
 
 if __name__ == "__main__":
     game = Controller()
-    display = Display()
-    game.new_game(12, 12, 15)
-    while game.current_state == State.PLAYING:
-
-        # Cheating to test win code
-        # for mine_cell in game.board.mine_locations:
-        #     game.board.flag_cell(mine_cell[0], mine_cell[1])
-        #     game.flagged_locations.add((mine_cell[0], mine_cell[1]))
-        #     if game.check_win():
-        #         game.current_state = State.PLAYER_WON
-        #         break
-
-        display.display_board(game.board, game.mines_left)
-        mode = input("Enter selection mode (reveal, flag, quit): ")
-        if mode.lower() == "reveal":
-            game.mode = game.Move_Mode.REVEAL
-        elif mode.lower() == "flag":
-            game.mode = game.Move_Mode.FLAG
-        elif mode.lower() == "quit":
-            break
-
-        move = input("Enter a cell position: ")
-        move = [char for char in move]
-        move = game.convert_move_to_xy(move[0], move[1])
-        if move[0] >= 0 and move[0] < game.board.width and\
-                move[1] >= 0 and move[1] < game.board.height:
-            game.process_move(move[0], move[1])
-        else:
-            print("Please enter a position on the board")
-    display.display_board(game.board, game.mines_left)
-    if game.current_state == State.PLAYER_WON:
-        print("YOU WON!")
-    elif game.current_state == State.PLAYER_LOST:
-        print("YOU LOST!")
+    game.run()
