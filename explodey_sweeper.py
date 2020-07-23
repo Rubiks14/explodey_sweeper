@@ -2,7 +2,6 @@
 A game where the goal is to not step on an exploding square
 """
 
-# TODO: Add ability to unflag a cell
 # TODO: Get rid of some duplicated code by abstracting it to functions
 # TODO: Update comments and variable names to be have consistent wording
 from dataclasses import dataclass, field
@@ -188,12 +187,12 @@ class Board():
             cell = self.cells[y*self.width+x]
             # if the cell is no revealed and it's a blank space
             # then reveal it and add it to the list to use as the centerpoint
-            if cell.character == '░' and not cell.revealed:
+            if cell.character == EMPTY_SPACE and not cell.revealed:
                 cell.revealed = True
                 next_cells.append((x, y))
             # otherwise if the cell is not a mine then reveal it and don't
             # add it to the list of cells to be center points
-            elif cell.character != '*':
+            elif cell.character != MINE:
                 cell.revealed = True
 
             # loop through all revealed empty cells and reveal the cells
@@ -213,6 +212,12 @@ class Board():
         can be used to determine if the player has won the game
         """
         self.cells[y*self.width+x].flagged = True
+
+    def unflag_cell(self, x, y):
+        """
+        Unlags the cell logically
+        """
+        self.cells[y*self.width+x].flagged = False
 
     def reset(self):
         """
@@ -280,8 +285,7 @@ class Display():
 
     def debug_display(self, board: Cells, board_width, board_height):
         """
-        Displays the contents of the board based on if the cell is revealed
-        or not
+        Displays the contents of all cells on the board.
         """
         # We don't want to try and work with an empty list
         if not len(board):
@@ -431,26 +435,22 @@ class Controller():
         Gets the players command and returns it
         """
         print("Commands - reveal, flag, unflag, new, reset, quit")
-        try:
-            command = input("Enter a command (default is reveal): ") or\
-                self.Commands.REVEAL.value
-        finally:
+        command = input("Enter a command (default is reveal): ")
+        if not command:
+            return self.Commands.REVEAL.value
+        else:
             return command
 
     def get_move(self):
         """
         Gets the move from player
         """
-        got_move = False
-        while not got_move:
-            try:
-                move = input("Enter col and row: ")
-            except ValueError:
-                pass
-            else:
+        while True:
+            move = input("Enter col and row: ")
+            if move:
                 return move
 
-    def validate_move(self, move: str):
+    def validate_input_length(self, move: str):
         """
         Validates that user input is correct length
         """
@@ -466,7 +466,7 @@ class Controller():
                 command == self.Commands.UNFLAG.value):
             self.mode = command
             move = self.get_move()
-            if self.validate_move(move):
+            if self.validate_input_length(move):
                 move_position = self.convert_move_to_xy(move)
                 if (move_position[0] >= 0 and
                         move_position[0] < self.board.width and
@@ -509,6 +509,12 @@ class Controller():
                 self.mines_left -= 1
                 if self.check_win():
                     self.current_state = State.PLAYER_WON
+        elif self.mode == self.Commands.UNFLAG.value:
+            if self.board.is_revealed(x, y):
+                print(f"Invalid Move: Cell ({x}, {y}) is already revealed")
+            elif self.board.is_flagged(x, y):
+                self.board.unflag_cell(x, y)
+                self.mines_left += 1
 
     def run(self):
         """
@@ -580,14 +586,11 @@ class Controller():
         """
         print("Start a new game or quit?")
         while self.current_state == State.MENU:
-            try:
-                command = input("Enter command (new, quit): ")
-                if command == self.Commands.NEW.value:
-                    self.current_state = State.NEW_GAME
-                elif command == self.Commands.QUIT.value:
-                    self.current_state = State.PLAYER_QUIT
-            except ValueError:
+            command = input("Enter command (new, quit): ")
+            if command == self.Commands.NEW.value or not command:
                 self.current_state = State.NEW_GAME
+            elif command == self.Commands.QUIT.value:
+                self.current_state = State.PLAYER_QUIT
 
     def process_quit(self):
         """
